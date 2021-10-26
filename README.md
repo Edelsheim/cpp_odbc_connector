@@ -7,10 +7,15 @@ Windows C++ ODBC Connector
 ## Test & Build env
 
 OS : Windows 10
+
 Platform : Visual Studio 2019 (v142)
+
 Windows SDK Version : 10.0
+
 C : /std:C11
+
 C++ : /std:C++14
+
 Character Set : None
 
 -----------------------
