@@ -10,8 +10,14 @@
 
 class ODBC {
 public:
+	/// <summary>
+	/// Connect SQL server string builder
+	/// </summary>
 	std::string connectBuild;
 
+	/// <summary>
+	/// Empty constructor. Need Call Connect functions
+	/// </summary>
 	ODBC() {
 		this->Close();
 		this->sqlSuccess = false;
@@ -19,19 +25,69 @@ public:
 		this->sqlHSTMT = SQL_NULL_HSTMT;
 	};
 
+	/// <summary>
+	/// ODBC constructor
+	/// </summary>
+	/// <param name="driver">SQL Driver name</param>
+	/// <param name="serverIP">SQL Server ip</param>
+	/// <param name="serverPort">SQL Server port</param>
+	/// <param name="uid">SQL Server user id</param>
+	/// <param name="pwd">SQL Server password</param>
+	/// <param name="databaseName">SQL Server database name</param>
 	ODBC(std::string driver, std::string serverIP, std::string serverPort, std::string uid, std::string pwd, std::string databaseName) {
-		bool isClose = true;
 		this->sqlSuccess = false;
 		this->sqlHDBC = SQL_NULL_HDBC;
 		this->sqlHSTMT = SQL_NULL_HSTMT;
 
 		// connect build string
-		connectBuild = "DRIVER={" + driver + "};";
-		connectBuild += "SERVER=" + serverIP + ", " + serverPort + ";";
-		connectBuild += "UID=" + uid + ";";
-		connectBuild += "PWD=" + pwd + ";";
-		connectBuild += "DATABASE=" + databaseName;
+		this->connectBuild = "DRIVER={" + driver + "};";
+		this->connectBuild += "SERVER=" + serverIP + ", " + serverPort + ";";
+		this->connectBuild += "UID=" + uid + ";";
+		this->connectBuild += "PWD=" + pwd + ";";
+		this->connectBuild += "DATABASE=" + databaseName;
 
+		this->Connect(this->connectBuild);
+	};
+
+	~ODBC() {
+		this->Close();
+	};
+
+	/// <summary>
+	/// Connect SQL Server at local class variable connectBuild
+	/// </summary>
+	/// <returns>connected : true, other : false</returns>
+	bool Connect() {
+		return this->Connect(this->connectBuild);
+	}
+
+	/// <summary>
+	/// Connect SQL Server
+	/// </summary>
+	/// <param name="driver">SQL Driver name</param>
+	/// <param name="serverIP">SQL Server ip</param>
+	/// <param name="serverPort">SQL Server port</param>
+	/// <param name="uid">SQL Server user id</param>
+	/// <param name="pwd">SQL Server password</param>
+	/// <param name="databaseName">SQL Server database name</param>
+	/// <returns>connected : true, other : false</returns>
+	bool Connect(std::string driver, std::string serverIP, std::string serverPort, std::string uid, std::string pwd, std::string databaseName) {
+		// connect build string
+		this->connectBuild = "DRIVER={" + driver + "};";
+		this->connectBuild += "SERVER=" + serverIP + ", " + serverPort + ";";
+		this->connectBuild += "UID=" + uid + ";";
+		this->connectBuild += "PWD=" + pwd + ";";
+		this->connectBuild += "DATABASE=" + databaseName;
+		return this->Connect();
+	}
+
+	/// <summary>
+	/// Using string builder to connect SQL Server
+	/// </summary>
+	/// <param name="connectBuild"></param>
+	/// <returns>connected : true, other : false</returns>
+	bool Connect(std::string connectBuild) {
+		bool isConnect = false;
 		if (SQL_ERROR != SQLAllocEnv(&this->sqlHENV)) {
 			SQLSetEnvAttr(this->sqlHENV, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0);
 			if (SQL_ERROR != SQLAllocConnect(this->sqlHENV, &this->sqlHDBC)) {
@@ -40,29 +96,48 @@ public:
 				if (SQL_SUCCEEDED(ret)) {
 					ret = SQLAllocStmt(this->sqlHDBC, &this->sqlHSTMT);
 					if (SQL_SUCCEEDED(ret)) {
-						isClose = false;
+						isConnect = true;
 						this->sqlSuccess = true;
 					}
+					else {
+						throw "SQL Alloc STMT error";
+					}
+				}
+				else {
+					throw "SQL Driver Connect error";
 				}
 			}
+			else {
+				throw "SQL Alloc Connect error";
+			}
 		}
-		if (isClose) {
+		else {
+			throw "SQL Alloc Env error";
+		}
+		if (!isConnect)
 			this->Close();
-		}
-	};
 
-	~ODBC() {
-		this->Close();
-	};
+		return isConnect;
+	}
 
-	void ExecDirectSQL(std::string sql) {
+	/// <summary>
+	/// Run query.
+	/// </summary>
+	/// <param name="query">SQL query</param>
+	/// <returns>success : true, fail : false</returns>
+	bool ExecQuery(std::string query) {
 		if (this->sqlHSTMT != SQL_NULL_HSTMT) SQLFreeStmt(this->sqlHSTMT, SQL_DROP);
 		SQLRETURN ret = SQLAllocStmt(this->sqlHDBC, &this->sqlHSTMT);
 
-		this->ExecDirectSQL(this->sqlHSTMT, sql);
+		return this->ExecDirectSQL(this->sqlHSTMT, query);
 	}
 
-	std::vector<std::vector<std::string>> GetData(std::string sql) {
+	/// <summary>
+	/// Get query result
+	/// </summary>
+	/// <param name="query">SQL query</param>
+	/// <returns>[rows][column]</returns>
+	std::vector<std::vector<std::string>> GetData(std::string query) {
 		std::vector<std::vector<std::string>> result;
 		result.clear();
 
@@ -70,7 +145,7 @@ public:
 		SQLRETURN ret = SQLAllocStmt(this->sqlHDBC, &this->sqlHSTMT);
 
 		if (SQL_SUCCEEDED(ret)) {
-			if (this->ExecDirectSQL(this->sqlHSTMT, sql)) {
+			if (this->ExecDirectSQL(this->sqlHSTMT, query)) {
 				SQLRETURN ret = SQLFetch(this->sqlHSTMT);
 				while (true) {
 					if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
@@ -86,16 +161,21 @@ public:
 		return result;
 	}
 
-	std::vector<std::map<std::string, std::string>> GetDataMap(std::string sql) {
+	/// <summary>
+	/// Get query result
+	/// </summary>
+	/// <param name="query">SQL query</param>
+	/// <returns>[rows]{first = field, secord = record}</returns>
+	std::vector<std::map<std::string, std::string>> GetDataMap(std::string query) {
 		std::vector<std::map<std::string, std::string>> result;
 		result.clear();
 
 		if (this->sqlHSTMT != SQL_NULL_HSTMT) SQLFreeStmt(this->sqlHSTMT, SQL_DROP);
 		SQLRETURN ret = SQLAllocStmt(this->sqlHDBC, &this->sqlHSTMT);
 		if (SQL_SUCCEEDED(ret)) {
-			if (this->ExecDirectSQL(this->sqlHSTMT, sql)) {
+			if (this->ExecDirectSQL(this->sqlHSTMT, query)) {
 				SQLRETURN ret = SQLFetch(this->sqlHSTMT);
-				while (1) {
+				while (true) {
 					if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
 						break;
 					}
@@ -109,6 +189,10 @@ public:
 		return result;
 	}
 
+	/// <summary>
+	/// Return SQL Server connect
+	/// </summary>
+	/// <returns>connected : true, other : fail</returns>
 	bool isOpen() {
 		return sqlSuccess;
 	}
@@ -121,12 +205,24 @@ private:
 
 	// Exec SQL
 	// return Exec success or fail
-	bool ExecDirectSQL(SQLHSTMT& hstmt, std::string sql) {
+	bool ExecDirectSQL(SQLHSTMT& hstmt, std::string query) {
 		if (hstmt == SQL_NULL_HSTMT) {
 			return false;
 		}
 
-		SQLRETURN ret = SQLExecDirect(hstmt, (SQLCHAR*)sql.c_str(), SQL_NTS);
+		SQLRETURN ret = SQLExecDirect(hstmt, (SQLCHAR*)query.c_str(), SQL_NTS);
+		if (SQL_SUCCEEDED(ret)) {
+			return true;
+		}
+		return false;
+	}
+
+	bool ExecDirectSQL(SQLHSTMT& hstmt, std::wstring query) {
+		if (hstmt == SQL_NULL_HSTMT) {
+			return false;
+		}
+
+		SQLRETURN ret = SQLExecDirectW(hstmt, (SQLWCHAR*)query.c_str(), SQL_NTS);
 		if (SQL_SUCCEEDED(ret)) {
 			return true;
 		}
@@ -240,9 +336,15 @@ private:
 	std::string TrimRight(std::string str, const char trim) {
 		return str.erase(str.find_last_not_of(trim) + 1);
 	}
+	std::wstring TrimRight(std::wstring str, const wchar_t trim) {
+		return str.erase(str.find_last_not_of(trim) + 1);
+	}
 
 	// trim left
 	std::string TrimLeft(std::string str, const char trim) {
+		return str.erase(0, str.find_first_not_of(trim));
+	}
+	std::wstring TrimLeft(std::wstring str, const wchar_t trim) {
 		return str.erase(0, str.find_first_not_of(trim));
 	}
 #pragma endregion
