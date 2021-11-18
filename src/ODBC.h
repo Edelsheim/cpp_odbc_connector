@@ -22,7 +22,6 @@ public:
 		this->Close();
 		this->sqlSuccess = false;
 		this->sqlHDBC = SQL_NULL_HDBC;
-		this->sqlHSTMT = SQL_NULL_HSTMT;
 	};
 
 	/// <summary>
@@ -37,7 +36,6 @@ public:
 	ODBC(std::string driver, std::string serverIP, std::string serverPort, std::string uid, std::string pwd, std::string databaseName) {
 		this->sqlSuccess = false;
 		this->sqlHDBC = SQL_NULL_HDBC;
-		this->sqlHSTMT = SQL_NULL_HSTMT;
 
 		// connect build string
 		this->connectBuild = "DRIVER={" + driver + "};";
@@ -94,14 +92,17 @@ public:
 				SQLSMALLINT short_result;
 				SQLRETURN ret = SQLDriverConnect(this->sqlHDBC, NULL, (SQLCHAR*)connectBuild.c_str(), SQL_NTS, NULL, 0, &short_result, SQL_DRIVER_NOPROMPT);
 				if (SQL_SUCCEEDED(ret)) {
-					ret = SQLAllocStmt(this->sqlHDBC, &this->sqlHSTMT);
+					SQLHSTMT sqlHSTMT = SQL_NULL_HSTMT;
+					ret = SQLAllocStmt(this->sqlHDBC, &sqlHSTMT);
 					if (SQL_SUCCEEDED(ret)) {
+						SQLFreeHandle(SQL_HANDLE_STMT, sqlHSTMT);
 						isConnect = true;
 						this->sqlSuccess = true;
 					}
 					else {
 						throw "SQL Alloc STMT error";
 					}
+					sqlHSTMT = SQL_NULL_HSTMT;
 				}
 				else {
 					throw "SQL Driver Connect error";
@@ -126,10 +127,16 @@ public:
 	/// <param name="query">SQL query</param>
 	/// <returns>success : true, fail : false</returns>
 	bool ExecQuery(std::string query) {
-		if (this->sqlHSTMT != SQL_NULL_HSTMT) SQLFreeStmt(this->sqlHSTMT, SQL_DROP);
-		SQLRETURN ret = SQLAllocStmt(this->sqlHDBC, &this->sqlHSTMT);
+		bool result = false;
+		SQLHSTMT sqlHSTMT = SQL_NULL_HSTMT;
+		SQLRETURN ret = SQLAllocStmt(this->sqlHDBC, &sqlHSTMT);
+		if (SQL_SUCCEEDED(ret)) {
+			result = this->ExecDirectSQL(this->sqlHSTMT, query))
+		}
 
-		return this->ExecDirectSQL(this->sqlHSTMT, query);
+		SQLFreeHandle(SQL_HANDLE_STMT, sqlHSTMT);
+		sqlHSTMT = SQL_NULL_HSTMT;
+		return result;
 	}
 
 	/// <summary>
@@ -141,13 +148,12 @@ public:
 		std::vector<std::vector<std::string>> result;
 		result.clear();
 
-		if (this->sqlHSTMT != SQL_NULL_HSTMT) SQLFreeStmt(this->sqlHSTMT, SQL_DROP);
-		SQLRETURN ret = SQLAllocStmt(this->sqlHDBC, &this->sqlHSTMT);
-
+		SQLHSTMT sqlHSTMT = SQL_NULL_HSTMT;
+		SQLRETURN ret = SQLAllocStmt(this->sqlHDBC, &sqlHSTMT);
 		if (SQL_SUCCEEDED(ret)) {
-			if (this->ExecDirectSQL(this->sqlHSTMT, query)) {
+			if (this->ExecDirectSQL(sqlHSTMT, query)) {
 				SQLRETURN ret = SQLFetch(this->sqlHSTMT);
-				while (true) {
+				while (1) {
 					if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
 						break;
 					}
@@ -157,7 +163,9 @@ public:
 					ret = SQLFetch(this->sqlHSTMT);
 				}
 			}
+			SQLFreeHandle(SQL_HANDLE_STMT, sqlHSTMT);
 		}
+		sqlHSTMT = SQL_NULL_HSTMT;
 		return result;
 	}
 
@@ -170,12 +178,12 @@ public:
 		std::vector<std::map<std::string, std::string>> result;
 		result.clear();
 
-		if (this->sqlHSTMT != SQL_NULL_HSTMT) SQLFreeStmt(this->sqlHSTMT, SQL_DROP);
-		SQLRETURN ret = SQLAllocStmt(this->sqlHDBC, &this->sqlHSTMT);
+		SQLHSTMT sqlHSTMT = SQL_NULL_HSTMT;
+		SQLRETURN ret = SQLAllocStmt(this->sqlHDBC, &sqlHSTMT);
 		if (SQL_SUCCEEDED(ret)) {
 			if (this->ExecDirectSQL(this->sqlHSTMT, query)) {
 				SQLRETURN ret = SQLFetch(this->sqlHSTMT);
-				while (true) {
+				while (1) {
 					if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
 						break;
 					}
@@ -185,7 +193,9 @@ public:
 					ret = SQLFetch(this->sqlHSTMT);
 				}
 			}
+			SQLFreeHandle(SQL_HANDLE_STMT, sqlHSTMT);
 		}
+		sqlHSTMT = SQL_NULL_HSTMT;
 		return result;
 	}
 
@@ -200,7 +210,6 @@ public:
 private:
 	SQLHDBC sqlHDBC;
 	SQLHENV sqlHENV;
-	SQLHSTMT sqlHSTMT;
 	bool sqlSuccess;
 
 	// Exec SQL
@@ -320,9 +329,6 @@ private:
 
 	void Close() {
 		this->sqlSuccess = false;
-
-		if (this->sqlHSTMT != SQL_NULL_HSTMT) SQLFreeStmt(this->sqlHSTMT, SQL_DROP);
-		this->sqlHSTMT = SQL_NULL_HSTMT;
 
 		if (this->sqlHENV != SQL_NULL_HENV) SQLFreeEnv(this->sqlHENV);
 		this->sqlHENV = SQL_NULL_HENV;
