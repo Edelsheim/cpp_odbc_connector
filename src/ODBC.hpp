@@ -86,14 +86,17 @@ public:
 	/// <returns>connected : true, other : false</returns>
 	bool Connect(std::string connectBuild) {
 		bool isConnect = false;
-		if (SQL_ERROR != SQLAllocEnv(&this->sqlHENV)) {
-			SQLSetEnvAttr(this->sqlHENV, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0);
-			if (SQL_ERROR != SQLAllocConnect(this->sqlHENV, &this->sqlHDBC)) {
+
+		SQLSetEnvAttr(NULL, SQL_ATTR_CONNECTION_POOLING, SQL_CP_ONE_PER_DRIVER, SQL_IS_INTEGER);
+
+		if (SQL_ERROR != SQLAllocHandle(SQL_HANDLE_ENV, NULL, &this->sqlHENV)) {
+			SQLSetEnvAttr(this->sqlHENV, SQL_ATTR_ODBC_VERSION, (SQLPOINTER)SQL_OV_ODBC3, SQL_IS_INTEGER);
+			if (SQL_ERROR != SQLAllocHandle(SQL_HANDLE_DBC, this->sqlHENV, &this->sqlHDBC)) {
 				SQLSMALLINT short_result;
 				SQLRETURN ret = SQLDriverConnect(this->sqlHDBC, NULL, (SQLCHAR*)connectBuild.c_str(), SQL_NTS, NULL, 0, &short_result, SQL_DRIVER_NOPROMPT);
 				if (SQL_SUCCEEDED(ret)) {
 					SQLHSTMT sqlHSTMT = SQL_NULL_HSTMT;
-					ret = SQLAllocStmt(this->sqlHDBC, &sqlHSTMT);
+					ret = SQLAllocHandle(SQL_HANDLE_STMT, this->sqlHDBC, &sqlHSTMT);
 					if (SQL_SUCCEEDED(ret)) {
 						SQLFreeHandle(SQL_HANDLE_STMT, sqlHSTMT);
 						isConnect = true;
@@ -129,8 +132,7 @@ public:
 	bool ExecQuery(std::string query) {
 		bool result = false;
 		SQLHSTMT sqlHSTMT = SQL_NULL_HSTMT;
-		SQLRETURN ret = SQLAllocStmt(this->sqlHDBC, &sqlHSTMT);
-		if (SQL_SUCCEEDED(ret)) {
+		if (SQL_SUCCEEDED(SQLAllocHandle(SQL_HANDLE_STMT, this->sqlHDBC, &sqlHSTMT))) {
 			result = this->ExecDirectSQL(this->sqlHSTMT, query))
 		}
 
@@ -149,8 +151,7 @@ public:
 		result.clear();
 
 		SQLHSTMT sqlHSTMT = SQL_NULL_HSTMT;
-		SQLRETURN ret = SQLAllocStmt(this->sqlHDBC, &sqlHSTMT);
-		if (SQL_SUCCEEDED(ret)) {
+		if (SQL_SUCCEEDED(SQLAllocHandle(SQL_HANDLE_STMT, this->sqlHDBC, &sqlHSTMT))) {
 			if (this->ExecDirectSQL(sqlHSTMT, query)) {
 				SQLRETURN ret = SQLFetch(this->sqlHSTMT);
 				while (1) {
@@ -179,8 +180,7 @@ public:
 		result.clear();
 
 		SQLHSTMT sqlHSTMT = SQL_NULL_HSTMT;
-		SQLRETURN ret = SQLAllocStmt(this->sqlHDBC, &sqlHSTMT);
-		if (SQL_SUCCEEDED(ret)) {
+		if (SQL_SUCCEEDED(SQLAllocHandle(SQL_HANDLE_STMT, this->sqlHDBC, &sqlHSTMT))) {
 			if (this->ExecDirectSQL(this->sqlHSTMT, query)) {
 				SQLRETURN ret = SQLFetch(this->sqlHSTMT);
 				while (1) {
@@ -330,11 +330,15 @@ private:
 	void Close() {
 		this->sqlSuccess = false;
 
-		if (this->sqlHENV != SQL_NULL_HENV) SQLFreeEnv(this->sqlHENV);
-		this->sqlHENV = SQL_NULL_HENV;
-
-		if (this->sqlHDBC != SQL_NULL_HDBC) SQLFreeConnect(this->sqlHDBC);
+		if (this->sqlHDBC != SQL_NULL_HDBC) {
+			if (SQL_SUCCEEDED(SQLDisconnect(this->sqlHDBC)))
+				SQLFreeHandle(SQL_HANDLE_DBC, this->sqlHDBC);
+		}
 		this->sqlHDBC = SQL_NULL_HDBC;
+
+		if (this->sqlHENV != SQL_NULL_HENV)
+			SQLFreeHandle(SQL_HANDLE_ENV, this->sqlHENV);
+		this->sqlHENV = SQL_NULL_HENV;
 	}
 
 #pragma region Utils
