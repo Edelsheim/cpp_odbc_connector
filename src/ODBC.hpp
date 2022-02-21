@@ -33,7 +33,7 @@ public:
 	/// <param name="uid">SQL Server user id</param>
 	/// <param name="pwd">SQL Server password</param>
 	/// <param name="databaseName">SQL Server database name</param>
-	ODBC(std::string driver, std::string serverIP, std::string serverPort, std::string uid, std::string pwd, std::string databaseName) {
+	ODBC(const std::string driver, conststd::string serverIP, conststd::string serverPort, conststd::string uid, conststd::string pwd, conststd::string databaseName) {
 		this->sqlSuccess = false;
 		this->sqlHDBC = SQL_NULL_HDBC;
 
@@ -69,7 +69,7 @@ public:
 	/// <param name="pwd">SQL Server password</param>
 	/// <param name="databaseName">SQL Server database name</param>
 	/// <returns>connected : true, other : false</returns>
-	bool Connect(std::string driver, std::string serverIP, std::string serverPort, std::string uid, std::string pwd, std::string databaseName) {
+	bool Connect(const std::string driver, const std::string serverIP, const std::string serverPort, const std::string uid, const std::string pwd, const std::string databaseName) {
 		// connect build string
 		this->connectBuild = "DRIVER={" + driver + "};";
 		this->connectBuild += "SERVER=" + serverIP + ", " + serverPort + ";";
@@ -84,7 +84,7 @@ public:
 	/// </summary>
 	/// <param name="connectBuild"></param>
 	/// <returns>connected : true, other : false</returns>
-	bool Connect(std::string connectBuild) {
+	bool Connect(const std::string connectBuild) {
 		bool isConnect = false;
 
 		SQLSetEnvAttr(NULL, SQL_ATTR_CONNECTION_POOLING, SQL_CP_ONE_PER_DRIVER, SQL_IS_INTEGER);
@@ -129,15 +129,28 @@ public:
 	/// </summary>
 	/// <param name="query">SQL query</param>
 	/// <returns>success : true, fail : false</returns>
-	bool ExecQuery(std::string query) {
+	bool ExecQuery(const std::string query) {
 		bool result = false;
-		SQLHSTMT sqlHSTMT = SQL_NULL_HSTMT;
-		if (SQL_SUCCEEDED(SQLAllocHandle(SQL_HANDLE_STMT, this->sqlHDBC, &sqlHSTMT))) {
-			result = this->ExecDirectSQL(this->sqlHSTMT, query))
+
+		SQLHDBC sqlHDBC = SQL_NULL_HDBC;
+		if (SQL_ERROR != SQLAllocHandle(SQL_HANDLE_DBC, this->sqlHENV, &sqlHDBC)) {
+			SQLSMALLINT short_result;
+			SQLRETURN ret = SQLDriverConnect(sqlHDBC, NULL, (SQLCHAR*)this->connectBuild.c_str(), SQL_NTS, NULL, 0, &short_result, SQL_DRIVER_NOPROMPT);
+			if (SQL_SUCCEEDED(ret)) {
+				SQLHSTMT sqlHSTMT = SQL_NULL_HSTMT;
+				if (SQL_SUCCEEDED(SQLAllocHandle(SQL_HANDLE_STMT, sqlHDBC, &sqlHSTMT))) {
+					result = this->ExecDirectSQL(sqlHSTMT, query);
+					SQLFreeHandle(SQL_HANDLE_STMT, sqlHSTMT);
+					sqlHSTMT = SQL_NULL_HSTMT;
+				}
+			}
 		}
 
-		SQLFreeHandle(SQL_HANDLE_STMT, sqlHSTMT);
-		sqlHSTMT = SQL_NULL_HSTMT;
+		if (sqlHDBC != SQL_NULL_HDBC)
+			if (SQL_SUCCEEDED(SQLDisconnect(sqlHDBC)))
+				SQLFreeHandle(SQL_HANDLE_DBC, sqlHDBC);
+		sqlHDBC = SQL_NULL_HDBC;
+
 		return result;
 	}
 
@@ -146,27 +159,39 @@ public:
 	/// </summary>
 	/// <param name="query">SQL query</param>
 	/// <returns>[rows][column]</returns>
-	std::vector<std::vector<std::string>> GetData(std::string query) {
+	std::vector<std::vector<std::string>> GetData(const std::string query) {
 		std::vector<std::vector<std::string>> result;
 		result.clear();
 
-		SQLHSTMT sqlHSTMT = SQL_NULL_HSTMT;
-		if (SQL_SUCCEEDED(SQLAllocHandle(SQL_HANDLE_STMT, this->sqlHDBC, &sqlHSTMT))) {
-			if (this->ExecDirectSQL(sqlHSTMT, query)) {
-				SQLRETURN ret = SQLFetch(this->sqlHSTMT);
-				while (1) {
-					if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-						break;
-					}
+		SQLHDBC sqlHDBC = SQL_NULL_HDBC;
+		if (SQL_ERROR != SQLAllocHandle(SQL_HANDLE_DBC, this->sqlHENV, &sqlHDBC)) {
+			SQLSMALLINT short_result;
+			SQLRETURN ret = SQLDriverConnect(sqlHDBC, NULL, (SQLCHAR*)this->connectBuild.c_str(), SQL_NTS, NULL, 0, &short_result, SQL_DRIVER_NOPROMPT);
+			if (SQL_SUCCEEDED(ret)) {
+				SQLHSTMT sqlHSTMT = SQL_NULL_HSTMT;
+				if (SQL_SUCCEEDED(SQLAllocHandle(SQL_HANDLE_STMT, sqlHDBC, &sqlHSTMT))) {
+					if (this->ExecDirectSQL(sqlHSTMT, query)) {
+						SQLRETURN ret = SQLFetch(this->sqlHSTMT);
+						while (1) {
+							if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+								break;
+							}
 
-					std::vector<std::string> columnData = this->GetColumnData(this->sqlHSTMT);
-					result.push_back(columnData);
-					ret = SQLFetch(this->sqlHSTMT);
+							std::vector<std::string> columnData = this->GetColumnData(this->sqlHSTMT);
+							result.push_back(columnData);
+							ret = SQLFetch(this->sqlHSTMT);
+						}
+					}
+					SQLFreeHandle(SQL_HANDLE_STMT, sqlHSTMT);
 				}
+				sqlHSTMT = SQL_NULL_HSTMT;
 			}
-			SQLFreeHandle(SQL_HANDLE_STMT, sqlHSTMT);
 		}
-		sqlHSTMT = SQL_NULL_HSTMT;
+
+		if (sqlHDBC != SQL_NULL_HDBC)
+			if (SQL_SUCCEEDED(SQLDisconnect(sqlHDBC)))
+				SQLFreeHandle(SQL_HANDLE_DBC, sqlHDBC);
+		sqlHDBC = SQL_NULL_HDBC;
 		return result;
 	}
 
@@ -175,27 +200,40 @@ public:
 	/// </summary>
 	/// <param name="query">SQL query</param>
 	/// <returns>[rows]{first = field, secord = record}</returns>
-	std::vector<std::map<std::string, std::string>> GetDataMap(std::string query) {
+	std::vector<std::map<std::string, std::string>> GetDataMap(const std::string query) {
 		std::vector<std::map<std::string, std::string>> result;
 		result.clear();
 
-		SQLHSTMT sqlHSTMT = SQL_NULL_HSTMT;
-		if (SQL_SUCCEEDED(SQLAllocHandle(SQL_HANDLE_STMT, this->sqlHDBC, &sqlHSTMT))) {
-			if (this->ExecDirectSQL(this->sqlHSTMT, query)) {
-				SQLRETURN ret = SQLFetch(this->sqlHSTMT);
-				while (1) {
-					if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-						break;
-					}
+		SQLHDBC sqlHDBC = SQL_NULL_HDBC;
+		if (SQL_ERROR != SQLAllocHandle(SQL_HANDLE_DBC, this->sqlHENV, &sqlHDBC)) {
+			SQLSMALLINT short_result;
+			SQLRETURN ret = SQLDriverConnect(sqlHDBC, NULL, (SQLCHAR*)this->connectBuild.c_str(), SQL_NTS, NULL, 0, &short_result, SQL_DRIVER_NOPROMPT);
+			if (SQL_SUCCEEDED(ret)) {
+				SQLHSTMT sqlHSTMT = SQL_NULL_HSTMT;
+				if (SQL_SUCCEEDED(SQLAllocHandle(SQL_HANDLE_STMT, this->sqlHDBC, &sqlHSTMT))) {
+					if (this->ExecDirectSQL(this->sqlHSTMT, query)) {
+						SQLRETURN ret = SQLFetch(this->sqlHSTMT);
+						while (1) {
+							if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+								break;
+							}
 
-					std::map<std::string, std::string> columnDataMap = this->GetColumnDataMap(this->sqlHSTMT);
-					result.push_back(columnDataMap);
-					ret = SQLFetch(this->sqlHSTMT);
+							std::map<std::string, std::string> columnDataMap = this->GetColumnDataMap(this->sqlHSTMT);
+							result.push_back(columnDataMap);
+							ret = SQLFetch(this->sqlHSTMT);
+						}
+					}
+					SQLFreeHandle(SQL_HANDLE_STMT, sqlHSTMT);
 				}
+				sqlHSTMT = SQL_NULL_HSTMT;
 			}
-			SQLFreeHandle(SQL_HANDLE_STMT, sqlHSTMT);
 		}
-		sqlHSTMT = SQL_NULL_HSTMT;
+
+		if (sqlHDBC != SQL_NULL_HDBC)
+			if (SQL_SUCCEEDED(SQLDisconnect(sqlHDBC)))
+				SQLFreeHandle(SQL_HANDLE_DBC, sqlHDBC);
+		sqlHDBC = SQL_NULL_HDBC;
+
 		return result;
 	}
 
@@ -208,13 +246,12 @@ public:
 	}
 
 private:
-	SQLHDBC sqlHDBC;
 	SQLHENV sqlHENV;
 	bool sqlSuccess;
 
 	// Exec SQL
 	// return Exec success or fail
-	bool ExecDirectSQL(SQLHSTMT& hstmt, std::string query) {
+	bool ExecDirectSQL(SQLHSTMT& hstmt, const std::string query) {
 		if (hstmt == SQL_NULL_HSTMT) {
 			return false;
 		}
@@ -223,10 +260,12 @@ private:
 		if (SQL_SUCCEEDED(ret)) {
 			return true;
 		}
-		return false;
+		else {
+			return false;
+		}
 	}
 
-	bool ExecDirectSQL(SQLHSTMT& hstmt, std::wstring query) {
+	bool ExecDirectSQL(SQLHSTMT& hstmt, const std::wstring query) {
 		if (hstmt == SQL_NULL_HSTMT) {
 			return false;
 		}
@@ -235,14 +274,15 @@ private:
 		if (SQL_SUCCEEDED(ret)) {
 			return true;
 		}
-		return false;
+		else {
+			return false;
+		}
 	}
 
 	// Get column count(field count)
 	SQLSMALLINT GetColumnCount(SQLHSTMT& hstmt) {
 		SQLSMALLINT cols;
-		SQLRETURN ret = SQLNumResultCols(hstmt, &cols);
-		if (SQL_SUCCEEDED(ret)) {
+		if (SQL_SUCCEEDED(SQLNumResultCols(hstmt, &cols))) {
 			return cols;
 		}
 		return 0;
@@ -290,7 +330,7 @@ private:
 	}
 
 	// get field name
-	std::string GetFieldName(SQLHSTMT& hstmt, SQLSMALLINT index = 1) {
+	std::string GetFieldName(SQLHSTMT& hstmt, const SQLSMALLINT index = 1) {
 		std::string columnName;
 
 		SQLCHAR columnName_c[1024] = { 0, };
@@ -311,7 +351,7 @@ private:
 	}
 
 	// get field value
-	std::string GetFieldValue(SQLHSTMT& hstmt, SQLSMALLINT index = 1) {
+	std::string GetFieldValue(SQLHSTMT& hstmt, const SQLSMALLINT index = 1) {
 		std::string data_str;
 
 		char data_c[1024] = { 0, };
