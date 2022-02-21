@@ -33,7 +33,7 @@ public:
 	/// <param name="uid">SQL Server user id</param>
 	/// <param name="pwd">SQL Server password</param>
 	/// <param name="databaseName">SQL Server database name</param>
-	ODBC(const std::string driver, conststd::string serverIP, conststd::string serverPort, conststd::string uid, conststd::string pwd, conststd::string databaseName) {
+	ODBC(const std::string driver, const std::string serverIP, const std::string serverPort, const std::string uid, const std::string pwd, const std::string databaseName) {
 		this->sqlSuccess = false;
 		this->sqlHDBC = SQL_NULL_HDBC;
 
